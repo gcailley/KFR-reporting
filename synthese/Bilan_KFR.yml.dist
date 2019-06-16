@@ -1,1 +1,0 @@
-default:  kfr_url: "https://localhost/kfr-back/public/index.php"  kfr_token: ""  kfr_excel_template: "Bilan_KFR.xlsx"
