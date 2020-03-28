@@ -13,7 +13,7 @@ library(openxlsx)
 
 ############################################################
 ### Chargement de la configuration
-config <- config::get(file = "rapport_moral_KFR.yml")
+config <- config::get(file = "configuration.yml")
 ### Step 0 : initialisation
 kfr_token = config$kfr_token
 kfr_url = config$kfr_url

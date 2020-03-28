@@ -37,3 +37,7 @@ rapportfinancier/configuration.yml
 
 # Shiny token, see https://shiny.rstudio.com/articles/shinyapps.html
 rsconnect/
+
+# Excel binary files
+*.docs
+*.xlsx
