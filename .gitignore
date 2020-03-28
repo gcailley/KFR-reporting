@@ -39,5 +39,5 @@ rapportfinancier/configuration.yml
 rsconnect/
 
 # Excel binary files
-*.docs
-*.xlsx
+rapportFinancier/*.docs
+rapportFinancier/*.xlsx
