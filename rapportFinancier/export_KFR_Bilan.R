@@ -1,4 +1,3 @@
-# Test : commit
 # Questions à valider : 
 # NB : duree des API Key
 # Calcul du nombre d'adherents : -1 si on enlève Greg dans le nombre d'adherents
