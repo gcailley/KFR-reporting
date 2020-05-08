@@ -8,7 +8,7 @@
 
 # temps passe : 7h
 ###############################################
-config <- config::get(file = "configuration.yml")
+config <- config::get(file = "configuration.yml.dist")
 ### Step 0 : initialisation
 kfr_token = config$kfr_token
 kfr_url = config$kfr_url
@@ -22,6 +22,8 @@ library(sqldf)
 library(tidyr)
 library(openxlsx)
 library(config)
+library(dplyr)
+
 
 ##############################################
 ### Step 2 : Intiailisation des fonctions internes
@@ -68,6 +70,8 @@ generateReports <- function() {
   adherents$actif <- as.integer(adherents$actif)
   adherents$saison_courante <- as.integer(adherents$saison_courante)
   adherents$saison <- as.integer(adherents$saisons)
+  # On ne garde que les variables utilisées dans les calculs
+  adherents <- adherents[,c("id","saison","saison_courante","cotisation_name","actif")] 
   
   kpi_saisons_adh <- sqldf("select saison, 
       COUNT(distinct id) as nb_adherents,
@@ -89,6 +93,7 @@ generateReports <- function() {
   ")
   
   # 3.1.3 EvÃ¨nements
+  events <- events[ , ! colnames(events) %in% c("adherents")]
   kpi_saisons_eve <- sqldf("
   select 
     saison_id as saison,
@@ -400,6 +405,8 @@ if (!token_valide) {
   generateReports()
   print('Generation DONE.')
 }
+# Suppression de tous les dataframe
 rm(token_valide)
+rm(list = ls())
 
 

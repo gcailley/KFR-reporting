@@ -3,7 +3,7 @@
 # Requêtes pour mise à jour du document et vérification des résultats
 ############################################################
 ### Récupération des données avant traitement
-library(cronR)
+#library(cronR)
 library(httr) 
 library(jsonlite)
 library(sqldf)
@@ -13,7 +13,7 @@ library(openxlsx)
 
 ############################################################
 ### Chargement de la configuration
-config <- config::get(file = "configuration.yml")
+config <- config::get(file = "configuration.yml.dist")
 ### Step 0 : initialisation
 kfr_token = config$kfr_token
 kfr_url = config$kfr_url
@@ -45,8 +45,10 @@ generateReports <- function() {
   adherents$actif <- as.integer(adherents$actif)
   adherents$saison_courante <- as.integer(adherents$saison_courante)
   adherents$saison <- as.integer(adherents$saisons)
+  adherents <- adherents[ , ! colnames(adherents) %in% c("adherents","groupes","taos","tresories")]  
   saisons <- saisons[,-which(names(saisons) == 'adherents')] # Exclusion de la colonne adherent, stockée sous type list
   tresorerie$cheque <- as.integer(tresorerie$cheque)
+  events <- events[,-which(names(events) == 'adherents')]
   
   #####################################################################
   
@@ -149,3 +151,4 @@ if (!token_valide) {
   sprintf('Generation %s DONE',config$kfr_excel_template)
 }
 rm(token_valide)
+rm(list = ls())
