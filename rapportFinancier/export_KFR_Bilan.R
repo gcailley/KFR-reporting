@@ -5,14 +5,6 @@
 # Categorie tresorerie : manque les interets bancaires par rapport au budget, le site n'etait pas provisionne l'annee precedente
 # Attention le montant de la salle parait tr√®s tr√®s faible !!!
 
-
-# temps passe : 7h
-###############################################
-config <- config::get(file = "configuration.yml.dist")
-### Step 0 : initialisation
-kfr_token = config$kfr_token
-kfr_url = config$kfr_url
-
 ###############################################
 ### Step 1 : Chargement des librairies
 ### needed ? library(cronR)
@@ -24,6 +16,11 @@ library(openxlsx)
 library(config)
 library(dplyr)
 
+###############################################
+config <- config::get(file = "configuration.yml.dist")
+### Step 0 : initialisation
+kfr_token = config$kfr_token
+kfr_url = config$kfr_url
 
 ##############################################
 ### Step 2 : Intiailisation des fonctions internes
@@ -70,21 +67,26 @@ generateReports <- function() {
   print('Creating dataSet...')
   #  3.1 Indicateurs globaux par saison 
   # 3.1.1 Adherents 
+  adherents <- adherents[ , ! colnames(adherents) %in% c("groupes","taos","tresories")]
+  # Gestion des NULL renvoyÈes par l'API sur les champs saisons qui ne sont plus historisÈs
+  adherents$saisons <- ifelse(adherents$saisons == 'NULL',NA,adherents$saisons)
   adherents <-unnest(adherents, saisons) # On multiplie les lignes par le nombre de saisons effectuees par adherent (unlist saisons)
+  
   adherents$actif <- as.integer(adherents$actif)
   adherents$saison_courante <- as.integer(adherents$saison_courante)
   adherents$saison <- as.integer(adherents$saisons)
   
     # On ne garde que les variables utilisÈes dans les calculs
-  adherents <- adherents[,c("id","saison","saison_courante","cotisation_name","actif")] 
   saisons <- saisons[,-which(names(saisons) == 'adherents')] # Exclusion de la colonne adherent, stockee sous type list
   
   kpi_saisons_adh <- sqldf("select saison, 
-      COUNT(distinct id) as nb_adherents,
-      SUM(actif) as nb_adherents_actif,
-      COUNT(distinct case when lower(cotisation_name) like '%annuel%' then id else null end) as nb_inscriptions_annuelles,
-      COUNT(distinct case when lower(cotisation_name) like '%trimestre%' then id else null end) as nb_inscriptions_trimestrielles
-      from adherents
+      COUNT(distinct a.id) as nb_adherents,
+      SUM(a.actif) as nb_adherents_actif,
+      COUNT(distinct case when lower(a.cotisation_name) like '%annuel%' then a.id else null end) as nb_inscriptions_annuelles,
+      COUNT(distinct case when lower(a.cotisation_name) like '%trimestre%' then a.id else null end) as nb_inscriptions_trimestrielles
+      from adherents a
+      inner join saisons s on a.saison= s.id
+      where s.active <>1
       group by saison
       
       union
