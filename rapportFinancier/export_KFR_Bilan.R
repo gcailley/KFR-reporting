@@ -36,7 +36,11 @@ generateReports <- function() {
   
   adherents <- jsonlite::fromJSON(content(httr::GET(url=sprintf("%s/association/adherents",kfr_url)
                                                       ,add_headers("X-Auth-Token"=kfr_token) )
-                                                      ,type="text"), flatten = TRUE) 
+                                                      ,type="text"), flatten = TRUE)
+  
+  kpi_all <- jsonlite::fromJSON(content(httr::GET(url=sprintf("%s/kpis/all",kfr_url)
+                                                    ,add_headers("X-Auth-Token"=kfr_token) )
+                                          ,type="text"), flatten = TRUE) 
   
   saisons <- jsonlite::fromJSON(content(httr::GET(url=sprintf("%s/saisons",kfr_url)
                                                       ,add_headers("X-Auth-Token"=kfr_token) )
@@ -70,8 +74,10 @@ generateReports <- function() {
   adherents$actif <- as.integer(adherents$actif)
   adherents$saison_courante <- as.integer(adherents$saison_courante)
   adherents$saison <- as.integer(adherents$saisons)
-  # On ne garde que les variables utilisées dans les calculs
+  
+    # On ne garde que les variables utilisées dans les calculs
   adherents <- adherents[,c("id","saison","saison_courante","cotisation_name","actif")] 
+  saisons <- saisons[,-which(names(saisons) == 'adherents')] # Exclusion de la colonne adherent, stockee sous type list
   
   kpi_saisons_adh <- sqldf("select saison, 
       COUNT(distinct id) as nb_adherents,
@@ -79,7 +85,20 @@ generateReports <- function() {
       COUNT(distinct case when lower(cotisation_name) like '%annuel%' then id else null end) as nb_inscriptions_annuelles,
       COUNT(distinct case when lower(cotisation_name) like '%trimestre%' then id else null end) as nb_inscriptions_trimestrielles
       from adherents
-      group by saison")
+      group by saison
+      
+      union
+      
+      select s.id as saison, 
+      COUNT(distinct a.id) as nb_adherents,
+      COUNT(distinct case when a.actif=1 then a.id else null end) as nb_adherents_actif,
+      COUNT(distinct case when lower(a.cotisation_name) like '%annuel%' then a.id else null end) as nb_inscriptions_annuelles,
+      COUNT(distinct case when lower(a.cotisation_name) like '%trimestre%' then a.id else null end) as nb_inscriptions_trimestrielles
+      from adherents a
+      inner join saisons s on substr(a.cotisation_name,1,16)= s.nom
+      where s.active = 1
+      group by s.id
+")
   
   # 3.1.2 Benevolats
   kpi_saisons_ben <- sqldf("
@@ -105,7 +124,6 @@ generateReports <- function() {
   ")
   
   # 3.1.4 Balance tresorerie
-  saisons <- saisons[,-which(names(saisons) == 'adherents')] # Exclusion de la colonne adherent, stockee sous type list
   tresorerie$cheque <- as.integer(tresorerie$cheque)
   
   # CFL: 09/06/2019 : modification RG sur A_encaisser (= montant pointe dans le bilan) et A_regler ( = montant a pointer dans le bilan)
@@ -144,8 +162,9 @@ generateReports <- function() {
   order by c1.saison_id ")
   
   
-  # 3.1.5 Nombre de cours sur Google Agenda ->to do en automatique, message d'erreur sur les credentials
-  # https://www.googleapis.com/calendar/v3/calendars/kungfurennes@gmail.com/events
+  # 3.1.5 Nombre de cours,  depuis l'API ALL
+  kpi_all <- as.data.frame(kpi_all$cours)
+  
   
   # 3.1.6 Merge des differents indicateurs
   kpi_saisons <- sqldf("
@@ -153,13 +172,16 @@ generateReports <- function() {
     adh.nb_adherents, adh.nb_adherents_actif, adh.nb_inscriptions_annuelles, adh.nb_inscriptions_trimestrielles,
     ben.nb_heures,
     eve.nb_evenement,
-    tres.retard, tres.somme_pointe_saison, tres.somme_a_pointer_saison, tres.tre_saison, tres.tre_fin_saison
+    tres.retard, tres.somme_pointe_saison, tres.somme_a_pointer_saison, tres.tre_saison, tres.tre_fin_saison,
+    cours.nbCours as nb_cours,
+    cours.nbCoursEssais as nb_cours_essai
   from 
     saisons s
   left join kpi_saisons_adh adh on s.id = adh.saison
   left join kpi_saisons_ben ben on s.id = ben.saison
   left join kpi_saisons_eve eve on s.id = eve.saison
   left join kpi_saisons_tres tres on s.id = tres.saison_id
+  left join kpi_all cours on s.nom = cours.saison_nom
   order by 
     s.nom desc
   limit 5
@@ -358,13 +380,13 @@ generateReports <- function() {
   openxlsx::removeWorksheet(wbbilan, sheet = "DataR")
   openxlsx::addWorksheet(wbbilan, "DataR")
   openxlsx::writeData(wbbilan, "DataR", kpi_saisons, startCol = 1, startRow = 1, rowNames = FALSE, colNames = TRUE)
-  openxlsx::writeData(wbbilan, "DataR", kpi_tresorerie_cat, startCol = 16, startRow = 1, rowNames = FALSE, colNames = TRUE)
-  openxlsx::writeData(wbbilan, "DataR", events, startCol = 23, startRow = 1, rowNames = FALSE, colNames = TRUE)
-  openxlsx::writeData(wbbilan, "DataR", kpi_tresorerie_evolution, startCol = 29, startRow = 1, rowNames = FALSE, colNames = TRUE)
-  openxlsx::writeData(wbbilan, "DataR", liste_recette, startCol = 36, startRow = 1, rowNames = FALSE, colNames = TRUE)
-  openxlsx::writeData(wbbilan, "DataR", liste_depense, startCol = 42, startRow = 1, rowNames = FALSE, colNames = TRUE)
-  openxlsx::writeData(wbbilan, "DataR", kpi_tresorerie_dep, startCol = 48, startRow = 1, rowNames = FALSE, colNames = TRUE)
-  openxlsx::writeData(wbbilan, "DataR", kpi_tresorerie_rece, startCol = 51, startRow = 1, rowNames = FALSE, colNames = TRUE)
+  openxlsx::writeData(wbbilan, "DataR", kpi_tresorerie_cat, startCol = 17, startRow = 1, rowNames = FALSE, colNames = TRUE)
+  openxlsx::writeData(wbbilan, "DataR", events, startCol = 24, startRow = 1, rowNames = FALSE, colNames = TRUE)
+  openxlsx::writeData(wbbilan, "DataR", kpi_tresorerie_evolution, startCol = 30, startRow = 1, rowNames = FALSE, colNames = TRUE)
+  openxlsx::writeData(wbbilan, "DataR", liste_recette, startCol = 37, startRow = 1, rowNames = FALSE, colNames = TRUE)
+  openxlsx::writeData(wbbilan, "DataR", liste_depense, startCol = 43, startRow = 1, rowNames = FALSE, colNames = TRUE)
+  openxlsx::writeData(wbbilan, "DataR", kpi_tresorerie_dep, startCol = 49, startRow = 1, rowNames = FALSE, colNames = TRUE)
+  openxlsx::writeData(wbbilan, "DataR", kpi_tresorerie_rece, startCol = 52, startRow = 1, rowNames = FALSE, colNames = TRUE)
   saveWorkbook(wbbilan, config$kfr_excel_template_bilan, overwrite = TRUE)
   print(sprintf(' %s saved',config$kfr_excel_template_bilan))
 
