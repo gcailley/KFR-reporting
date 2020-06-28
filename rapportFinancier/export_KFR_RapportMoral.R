@@ -3,7 +3,7 @@
 # Requêtes pour mise à jour du document et vérification des résultats
 ############################################################
 ### Récupération des données avant traitement
-#library(cronR)
+library(cronR)
 library(httr) 
 library(jsonlite)
 library(sqldf)
@@ -13,7 +13,7 @@ library(openxlsx)
 
 ############################################################
 ### Chargement de la configuration
-config <- config::get(file = "configuration.yml.dist")
+config <- config::get(file = "configuration.yml")
 ### Step 0 : initialisation
 kfr_token = config$kfr_token
 kfr_url = config$kfr_url
@@ -41,59 +41,43 @@ generateReports <- function() {
   
   cat_tresorerie <- jsonlite::fromJSON(content(httr::GET(url=sprintf("%s/tresorie/categories",kfr_url)
                                                          , add_headers("X-Auth-Token"= kfr_token)),type="text"), flatten = TRUE) 
-  adherents$saisons <- ifelse(adherents$saisons == 'NULL',NA,adherents$saisons)
-  
-  adherents <-unnest(adherents, saisons) # On multiplie les lignes par le nombre de saisons effectuées par adhérent (unlist saisons)
-  adherents$actif <- as.integer(adherents$actif)
-  adherents$saison_courante <- as.integer(adherents$saison_courante)
-  adherents$saison <- as.integer(adherents$saisons)
-  adherents <- adherents[ , ! colnames(adherents) %in% c("adherents","groupes","taos","tresories")]  
-  saisons <- saisons[,-which(names(saisons) == 'adherents')] # Exclusion de la colonne adherent, stockée sous type list
-  tresorerie$cheque <- as.integer(tresorerie$cheque)
-  events <- events[,-which(names(events) == 'adherents')]
+  cotisations <- jsonlite::fromJSON(content(httr::GET(url=sprintf("%s/cotisations",kfr_url)
+                                                    ,add_headers("X-Auth-Token"=kfr_token))
+                                          ,type="text"), flatten = TRUE) 														 
+														 
+	adherents <- adherents[ , ! colnames(adherents) %in% c("groupes","taos","tresories")]
+	adherents <-unnest(adherents, cotisations) 
+
+	adherents$actif <- as.integer(adherents$actif)
+	adherents$saison_courante <- as.integer(adherents$saison_courante)
+	adherents$saison <- as.integer(adherents$saisons)
+	tresorerie$cheque <- as.integer(tresorerie$cheque)
   
   #####################################################################
   
   # 1. Récapitulatif administratif
   # Listes des membres actifs
   
-  View(sqldf("select distinct adh.prenom || ' ' ||  adh.nom as membre 
-             from adherents adh
-              inner join saisons s on substr(adh.cotisation_name,1,16)= s.nom
-             where s.active=1 and adh.actif=1"))
+	View(sqldf("select adh.prenom || ' ' ||  adh.nom as membre 
+			   from adherents adh
+			  inner join cotisations c on adh.cotisations = c.id
+			  inner join saisons s on c.saison_id = s.id
+			   where s.active=1"))
   
   # 2. Point 1 Adhésion
   # Activité
+	sqldf("select c.saison_name, 
+		COUNT(distinct a.id) as nb_adherents,
+		SUM(a.actif) as nb_adherents_actif,
+		COUNT(distinct case when lower(a.cotisation_name) like '%annuel%' then a.id else null end) as nb_inscriptions_annuelles,
+		COUNT(distinct case when lower(a.cotisation_name) like '%trimestre%' then a.id else null end) as nb_inscriptions_trimestrielles,
+		COUNT(distinct a.licence_number) as nb_licences,
+		COUNT(distinct case when a.licence_etat = 'ACTIF' then a.licence_number else null end) as nb_licences_actives
+		from adherents a
+		inner join cotisations c on a.cotisations = c.id
+		group by c.saison_name
+		order by c.saison_id desc")
   
-  sqldf("select saison, 
-  COUNT(distinct a.id) as nb_adherents,
-  SUM(a.actif) as nb_adherents_actif,
-  COUNT(distinct case when lower(a.cotisation_name) like '%annuel%' then a.id else null end) as nb_inscriptions_annuelles,
-  COUNT(distinct case when lower(a.cotisation_name) like '%trimestre%' then a.id else null end) as nb_inscriptions_trimestrielles,
-  COUNT(distinct a.licence_number) as nb_licences,
-  COUNT(distinct case when a.licence_etat = 'ACTIF' then a.licence_number else null end) as nb_licences_actives
- 
-  from adherents a
-  inner join saisons s on a.saison= s.id
-  where s.active <>1
-  group by saison
-  
-  union
-  
-  select s.id as saison, 
-  COUNT(distinct a.id) as nb_adherents,
-  COUNT(distinct case when a.actif=1 then a.id else null end) as nb_adherents_actif,
-  COUNT(distinct case when lower(a.cotisation_name) like '%annuel%' then a.id else null end) as nb_inscriptions_annuelles,
-  COUNT(distinct case when lower(a.cotisation_name) like '%trimestre%' then a.id else null end) as nb_inscriptions_trimestrielles,
-  COUNT(distinct a.licence_number) as nb_licences,
-  COUNT(distinct case when a.licence_etat = 'ACTIF' then a.licence_number else null end) as nb_licences_actives
-   
-  from adherents a
-  inner join saisons s on substr(a.cotisation_name,1,16)= s.nom
-  where s.active = 1
-  group by s.id")
-  
-   
   # Financier
   sqldf("
   select 
@@ -128,15 +112,16 @@ generateReports <- function() {
   ")
   
   # Inscription
-  View(sqldf("select distinct cotisation_name,adh.prenom || ' ' ||  adh.nom as membre , adh.actif
-             from adherents adh
-              inner join saisons s on substr(adh.cotisation_name,1,16)= s.nom
-
-             where s.active=1 
-                  and ( lower(cotisation_name) like '%annuel%' or lower(cotisation_name) like '%trimestre%')
-             order by cotisation_name"))
+	View(sqldf("select cotisation_name,adh.prenom || ' ' ||  adh.nom as membre , adh.actif
+			   from adherents adh
+			  inner join cotisations c on adh.cotisations = c.id
+			  inner join saisons s on c.saison_id = s.id
+			   where s.active=1 
+					and ( lower(cotisation_name) like '%annuel%' or lower(cotisation_name) like '%trimestre%')
+			   order by cotisation_name"))
   
   #Evenements festifs
+  events <- events[ , ! colnames(events) %in% c("adherents")]
   View(sqldf("
    select description, commentaire, date_creation,
       substr(date_creation, 9, 2) || '/' || substr(date_creation, 6,2) || '/' || substr(date_creation, 1,4) || ': ' || description as titre_event
@@ -146,14 +131,13 @@ generateReports <- function() {
     "))
   
   # Bénévolats
-  sqldf("
-    select ben.description, adh.prenom,
-    ROUND(sum(heure)+ sum(minute)/60 ,0) as nb_heures
-    from benevolats ben
-    inner join saisons s on ben.saison_id = s.id and s.active=1
-    inner join adherents adh on ben.adherent_id = adh.id and adh.saison = s.id
-    group by ben.description, adh.prenom  
-  ")
+	sqldf("
+	  select ben.description,  ben.adherent_name,
+	  ROUND(sum(heure)+ sum(minute)/60 ,0) as nb_heures
+	  from benevolats ben
+	  inner join saisons s on ben.saison_id = s.id and s.active=1
+	  group by ben.description,  ben.adherent_name  
+	")
 }
 
 
@@ -173,4 +157,3 @@ if (!token_valide) {
   sprintf('Generation %s DONE',config$kfr_excel_template)
 }
 rm(token_valide)
-rm(list = ls())

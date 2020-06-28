@@ -5,6 +5,8 @@
 # Categorie tresorerie : manque les interets bancaires par rapport au budget, le site n'etait pas provisionne l'annee precedente
 # Attention le montant de la salle parait tr√®s tr√®s faible !!!
 
+
+# temps passe : 7h
 ###############################################
 ### Step 1 : Chargement des librairies
 ### needed ? library(cronR)
@@ -62,46 +64,34 @@ generateReports <- function() {
   materiels <- jsonlite::fromJSON(content(httr::GET(url=sprintf("%s/materiels",kfr_url)
                                                       ,add_headers("X-Auth-Token"=kfr_token))
                                                       ,type="text"), flatten = TRUE) 
+  
+  cotisations <- jsonlite::fromJSON(content(httr::GET(url=sprintf("%s/cotisations",kfr_url)
+                                                         ,add_headers("X-Auth-Token"=kfr_token))
+                                               ,type="text"), flatten = TRUE) 
   ###############################################
   ### Step 3 : calcul des indicateurs
   print('Creating dataSet...')
   #  3.1 Indicateurs globaux par saison 
   # 3.1.1 Adherents 
   adherents <- adherents[ , ! colnames(adherents) %in% c("groupes","taos","tresories")]
-  # Gestion des NULL renvoyÈes par l'API sur les champs saisons qui ne sont plus historisÈs
-  adherents$saisons <- ifelse(adherents$saisons == 'NULL',NA,adherents$saisons)
-  adherents <-unnest(adherents, saisons) # On multiplie les lignes par le nombre de saisons effectuees par adherent (unlist saisons)
-  
+
+  adherents <-unnest(adherents, cotisations) # On multiplie les lignes par le nombre de saisons effectuees par adherent (unlist cotisations)
+  # C'est la cotisation qui porte la saison
+
   adherents$actif <- as.integer(adherents$actif)
   adherents$saison_courante <- as.integer(adherents$saison_courante)
-  adherents$saison <- as.integer(adherents$saisons)
-  
-    # On ne garde que les variables utilisÈes dans les calculs
-  saisons <- saisons[,-which(names(saisons) == 'adherents')] # Exclusion de la colonne adherent, stockee sous type list
-  
-  kpi_saisons_adh <- sqldf("select saison, 
+  #adherents$saison <- as.integer(adherents$saisons)
+ 
+  kpi_saisons_adh <- sqldf("select c.saison_id as saison, 
       COUNT(distinct a.id) as nb_adherents,
       SUM(a.actif) as nb_adherents_actif,
-      COUNT(distinct case when lower(a.cotisation_name) like '%annuel%' then a.id else null end) as nb_inscriptions_annuelles,
-      COUNT(distinct case when lower(a.cotisation_name) like '%trimestre%' then a.id else null end) as nb_inscriptions_trimestrielles
+      COUNT(distinct case when lower(c.categorie_name) like '%annuel%' then a.id else null end) as nb_inscriptions_annuelles,
+      COUNT(distinct case when lower(c.categorie_name) like '%trimestr%' then a.id else null end) as nb_inscriptions_trimestrielles
       from adherents a
-      inner join saisons s on a.saison= s.id
-      where s.active <>1
-      group by saison
-      
-      union
-      
-      select s.id as saison, 
-      COUNT(distinct a.id) as nb_adherents,
-      COUNT(distinct case when a.actif=1 then a.id else null end) as nb_adherents_actif,
-      COUNT(distinct case when lower(a.cotisation_name) like '%annuel%' then a.id else null end) as nb_inscriptions_annuelles,
-      COUNT(distinct case when lower(a.cotisation_name) like '%trimestre%' then a.id else null end) as nb_inscriptions_trimestrielles
-      from adherents a
-      inner join saisons s on substr(a.cotisation_name,1,16)= s.nom
-      where s.active = 1
-      group by s.id
-")
-  
+      inner join cotisations c on a.cotisations = c.id
+      group by  c.saison_id
+  ")  
+
   # 3.1.2 Benevolats
   kpi_saisons_ben <- sqldf("
   select 
